@@ -1,0 +1,33 @@
+name: Weekly Time Summary Automation
+
+on:
+  schedule:
+    - cron: "0 15 * * 1"   # Monday 15:00 UTC = 9 AM Central
+  workflow_dispatch:        # allows manual run
+
+jobs:
+  run-script:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run Weekly Time Utilization Script
+        env:
+          tenant_id: ${{ secrets.tenant_id }}
+          client_id: ${{ secrets.client_id }}
+          client_secret: ${{ secrets.client_secret }}
+          MAILBOX_UPN: ${{ secrets.MAILBOX_UPN }}
+        run: |
+          python WWU.py
