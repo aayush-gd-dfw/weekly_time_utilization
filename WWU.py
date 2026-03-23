@@ -18,7 +18,7 @@ GRAPH = "https://graph.microsoft.com/v1.0"
 
 SUBJECT_PHRASE = "Weekly Time Utilization"
 MAILBOX_UPN = os.getenv("MAILBOX_UPN", "apatil@glassdoctordfw.com")
-SEND_TO = "apatil@glassdoctordfw.com"
+SEND_TO = "lpatterson@glassdoctordfw.com"
 
 INPUT_SHEET_NAME = "Sheet1"
 
@@ -417,6 +417,7 @@ def main():
 
     body_text = (
         "Hi,\n\n"
+        "*This is an automated email*\n"
         "Please find attached the original Weekly Time Utilization input file and the Weekly Time Summary file.\n\n"
         "The summary workbook includes:\n"
         "- Business Unit Summary\n"
