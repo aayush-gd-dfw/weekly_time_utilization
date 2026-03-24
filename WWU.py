@@ -233,7 +233,7 @@ def send_email_with_attachments(
 def build_summary_file(input_excel_bytes: bytes) -> Tuple[bytes, str]:
     """
     Reads input Excel, normalizes BU columns, excludes specific employees,
-    builds summary workbook, returns output bytes + filename.
+    builds summary workbook with percentage split only, returns output bytes + filename.
     """
     df = pd.read_excel(io.BytesIO(input_excel_bytes), sheet_name=INPUT_SHEET_NAME)
 
@@ -286,28 +286,35 @@ def build_summary_file(input_excel_bytes: bytes) -> Tuple[bytes, str]:
 
     for col in ["Idle", "Working", "Driving"]:
         if col not in emp_pivot.columns:
-            emp_pivot[col] = 0
+            emp_pivot[col] = 0.0
 
     emp_pivot = emp_pivot[["Employee Name", "Idle", "Working", "Driving"]]
 
-    # Round hours
-    emp_pivot["Idle"] = emp_pivot["Idle"].round(2)
-    emp_pivot["Working"] = emp_pivot["Working"].round(2)
-    emp_pivot["Driving"] = emp_pivot["Driving"].round(2)
+    emp_pivot["Total"] = emp_pivot["Idle"] + emp_pivot["Working"] + emp_pivot["Driving"]
 
-    # % calculation
-    emp_pivot["% of working hours"] = (
-        emp_pivot["Working"] /
-        (emp_pivot["Idle"] + emp_pivot["Working"] + emp_pivot["Driving"]).replace(0, pd.NA)
-    ) * 100
+    emp_pivot["% Idle Hours"] = (
+        emp_pivot["Idle"] / emp_pivot["Total"].replace(0, pd.NA) * 100
+    ).fillna(0).round(2)
 
-    emp_pivot["% of working hours"] = emp_pivot["% of working hours"].fillna(0).round(2)
+    emp_pivot["% Working Hours"] = (
+        emp_pivot["Working"] / emp_pivot["Total"].replace(0, pd.NA) * 100
+    ).fillna(0).round(2)
 
-    emp_pivot = emp_pivot.sort_values("Employee Name").reset_index(drop=True)
+    emp_pivot["% Driving Hours"] = (
+        emp_pivot["Driving"] / emp_pivot["Total"].replace(0, pd.NA) * 100
+    ).fillna(0).round(2)
+
+    emp_summary = emp_pivot[[
+        "Employee Name",
+        "% Idle Hours",
+        "% Working Hours",
+        "% Driving Hours"
+    ]].sort_values("Employee Name").reset_index(drop=True)
 
     # -----------------------------------------------------
     # Business Unit Summary
     # Average of summed employee hours within each BU
+    # then convert to percentage split
     # -----------------------------------------------------
     bu_employee_activity = (
         df.groupby(["Business Unit", "Employee Name", "Activity"], dropna=False)["Total Hours"]
@@ -328,38 +335,38 @@ def build_summary_file(input_excel_bytes: bytes) -> Tuple[bytes, str]:
 
     for col in ["Idle", "Working", "Driving"]:
         if col not in bu_avg.columns:
-            bu_avg[col] = 0
+            bu_avg[col] = 0.0
 
-    bu_summary = (
+    bu_summary_raw = (
         bu_avg.groupby("Business Unit", dropna=False)[["Idle", "Working", "Driving"]]
         .mean()
         .reset_index()
     )
 
-    bu_summary.rename(columns={
-        "Idle": "Average Idle Hours",
-        "Working": "Average Working Hours",
-        "Driving": "Average Driving Hours",
-    }, inplace=True)
+    bu_summary_raw["Total"] = (
+        bu_summary_raw["Idle"] +
+        bu_summary_raw["Working"] +
+        bu_summary_raw["Driving"]
+    )
 
-    # Round averages
-    bu_summary["Average Idle Hours"] = bu_summary["Average Idle Hours"].round(2)
-    bu_summary["Average Working Hours"] = bu_summary["Average Working Hours"].round(2)
-    bu_summary["Average Driving Hours"] = bu_summary["Average Driving Hours"].round(2)
+    bu_summary_raw["% Idle Hours"] = (
+        bu_summary_raw["Idle"] / bu_summary_raw["Total"].replace(0, pd.NA) * 100
+    ).fillna(0).round(2)
 
-    # % calculation
-    bu_summary["% of working hours"] = (
-        bu_summary["Average Working Hours"] /
-        (
-            bu_summary["Average Idle Hours"] +
-            bu_summary["Average Working Hours"] +
-            bu_summary["Average Driving Hours"]
-        ).replace(0, pd.NA)
-    ) * 100
+    bu_summary_raw["% Working Hours"] = (
+        bu_summary_raw["Working"] / bu_summary_raw["Total"].replace(0, pd.NA) * 100
+    ).fillna(0).round(2)
 
-    bu_summary["% of working hours"] = bu_summary["% of working hours"].fillna(0).round(2)
+    bu_summary_raw["% Driving Hours"] = (
+        bu_summary_raw["Driving"] / bu_summary_raw["Total"].replace(0, pd.NA) * 100
+    ).fillna(0).round(2)
 
-    bu_summary = bu_summary.sort_values("Business Unit").reset_index(drop=True)
+    bu_summary = bu_summary_raw[[
+        "Business Unit",
+        "% Idle Hours",
+        "% Working Hours",
+        "% Driving Hours"
+    ]].sort_values("Business Unit").reset_index(drop=True)
 
     # -----------------------------------------------------
     # Write output workbook
@@ -368,7 +375,7 @@ def build_summary_file(input_excel_bytes: bytes) -> Tuple[bytes, str]:
 
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
         bu_summary.to_excel(writer, sheet_name="Business Unit Summary", index=False)
-        emp_pivot.to_excel(writer, sheet_name="Employee Summary", index=False)
+        emp_summary.to_excel(writer, sheet_name="Employee Summary", index=False)
 
         wb = writer.book
         ws1 = wb["Business Unit Summary"]
@@ -417,7 +424,6 @@ def main():
 
     body_text = (
         "Hi,\n\n"
-        "*This is an automated email*\n"
         "Please find attached the original Weekly Time Utilization input file and the Weekly Time Summary file.\n\n"
         "The summary workbook includes:\n"
         "- Business Unit Summary\n"
@@ -433,7 +439,6 @@ def main():
         subject=subject,
         body_text=body_text,
         attachments=[
-            (input_filename, input_bytes),
             (summary_filename, summary_bytes),
         ],
     )
