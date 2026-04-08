@@ -9,6 +9,7 @@ import requests
 import pandas as pd
 from msal import ConfidentialClientApplication
 from openpyxl.utils import get_column_letter
+from openpyxl.styles import PatternFill
 
 
 # =========================================================
@@ -18,7 +19,7 @@ GRAPH = "https://graph.microsoft.com/v1.0"
 
 SUBJECT_PHRASE = "Weekly Time Utilization"
 MAILBOX_UPN = os.getenv("MAILBOX_UPN", "apatil@glassdoctordfw.com")
-SEND_TO = "lpatterson@glassdoctordfw.com"
+SEND_TO = "8994d80f.glassdoctordfw.com@amer.teams.ms"
 
 INPUT_SHEET_NAME = "Sheet1"
 
@@ -37,6 +38,15 @@ EXCLUDED_EMPLOYEES = {
 }
 
 OUTPUT_FILENAME = "Weekly Time Summary.xlsx"
+
+
+# =========================================================
+# COLOR FILLS
+# =========================================================
+SUPER_GREEN_FILL = PatternFill(fill_type="solid", fgColor="00B050")
+GREEN_FILL = PatternFill(fill_type="solid", fgColor="92D050")
+YELLOW_FILL = PatternFill(fill_type="solid", fgColor="FFFF00")
+RED_FILL = PatternFill(fill_type="solid", fgColor="FF0000")
 
 
 # =========================================================
@@ -191,6 +201,75 @@ def autosize_worksheet(ws):
         ws.column_dimensions[col_letter].width = min(max_length + 2, 35)
 
 
+def get_fill_for_metric(metric_name: str, value: float):
+    """
+    Returns the correct fill based on the metric and percentage thresholds.
+    """
+    if value is None:
+        return None
+
+    try:
+        value = float(value)
+    except Exception:
+        return None
+
+    metric_name = metric_name.strip().lower()
+
+    if metric_name == "% working hours":
+        if value > 70:
+            return SUPER_GREEN_FILL
+        elif 60 <= value <= 70:
+            return GREEN_FILL
+        elif 50 <= value < 60:
+            return YELLOW_FILL
+        else:
+            return RED_FILL
+
+    elif metric_name == "% idle hours":
+        if value < 10:
+            return SUPER_GREEN_FILL
+        elif 10 <= value < 15:
+            return GREEN_FILL
+        elif 15 <= value <= 20:
+            return YELLOW_FILL
+        else:
+            return RED_FILL
+
+    elif metric_name == "% driving hours":
+        if value < 10:
+            return SUPER_GREEN_FILL
+        elif 10 <= value < 15:
+            return GREEN_FILL
+        elif 15 <= value <= 25:
+            return YELLOW_FILL
+        else:
+            return RED_FILL
+
+    return None
+
+
+def apply_conditional_colors(ws):
+    """
+    Applies fill colors to % Working Hours, % Idle Hours, % Driving Hours columns.
+    """
+    header_map = {}
+    for cell in ws[1]:
+        header_map[cell.value] = cell.column
+
+    target_headers = ["% Working Hours", "% Idle Hours", "% Driving Hours"]
+
+    for header in target_headers:
+        col_idx = header_map.get(header)
+        if not col_idx:
+            continue
+
+        for row in range(2, ws.max_row + 1):
+            cell = ws.cell(row=row, column=col_idx)
+            fill = get_fill_for_metric(header, cell.value)
+            if fill:
+                cell.fill = fill
+
+
 def send_email_with_attachments(
     token: str,
     sender_upn: str,
@@ -313,8 +392,6 @@ def build_summary_file(input_excel_bytes: bytes) -> Tuple[bytes, str]:
 
     # -----------------------------------------------------
     # Business Unit Summary
-    # Average of summed employee hours within each BU
-    # then convert to percentage split
     # -----------------------------------------------------
     bu_employee_activity = (
         df.groupby(["Business Unit", "Employee Name", "Activity"], dropna=False)["Total Hours"]
@@ -381,6 +458,9 @@ def build_summary_file(input_excel_bytes: bytes) -> Tuple[bytes, str]:
         ws1 = wb["Business Unit Summary"]
         ws2 = wb["Employee Summary"]
 
+        apply_conditional_colors(ws1)
+        apply_conditional_colors(ws2)
+
         autosize_worksheet(ws1)
         autosize_worksheet(ws2)
 
@@ -424,7 +504,7 @@ def main():
 
     body_text = (
         "Hi,\n\n"
-        "Please find attached the original Weekly Time Utilization input file and the Weekly Time Summary file.\n\n"
+        "Please find attached the Weekly Time Summary file.\n\n"
         "The summary workbook includes:\n"
         "- Business Unit Summary\n"
         "- Employee Summary\n\n"
